@@ -26,7 +26,6 @@
         }
 
         button {
-            display: block;
             margin: 20px auto;
             padding: 10px 20px;
             background-color: #4CAF50;
@@ -56,6 +55,13 @@
             padding: 10px 0;
             font-size: 14px;
             border-top: 1px solid #333;  /* Optional: adds a subtle top border */
+        }
+        #actualCanvas {
+            display:none;
+        }
+        #previewCanvas {
+            max-width: 100%;
+            max-height: 100%;
         }
         a {
             color: #57AFFF; /* Brighter shade of blue */
@@ -87,11 +93,9 @@
         </div>
 
         <div>
+            <h2>Watermark configuration</h2>
             <label for="watermarkImage">Watermark Image:</label>
-            <input type="file" id="watermarkImage">
-        </div>
-
-        <div>
+            <input type="file" id="watermarkImage"> <br />
             <label for="location">Choose Location:</label>
             <select id="location">
                 <option value="top-left">Top Left</option>
@@ -150,14 +154,18 @@
         <button onclick="toggleAdvancedOptions()">Show Advanced Options</button>
         
         <h2>Preview:</h2>
+        <canvas id="actualCanvas"></canvas>
         <canvas id="previewCanvas"></canvas>
+        <br />
+        <button onclick="downloadImage()">Download</button> <button onclick="copyToClipboard()">Copy</button> <button onclick="openImageBlobInNewTab()">+ open in new tab</button><br />
+        <p>Note: iOS does not allow copying raw image data to clipboard. In addition, opening a blob does not work on iOS via Safari, but does work if using Edge. Other browsers may work but are not tested at this time.</p>
     </div>
 
     <script>
         // configuration
         let mainImage = null;
         let watermarkImage = null;
-        const canvas = document.getElementById('previewCanvas');
+        const canvas = document.getElementById('actualCanvas');
         const ctx = canvas.getContext('2d');
 
         //// add event listeners to handle image changes
@@ -360,6 +368,16 @@
             }
 
             ctx.globalAlpha = 1;  // Reset canvas opacity
+
+            // Draw a scaled-down preview
+            let previewCanvas = document.getElementById('previewCanvas');
+            previewCanvas.width = canvas.width;
+            previewCanvas.height = canvas.height;
+            let previewCtx = previewCanvas.getContext('2d');
+
+
+            // Here, we're drawing the content of canvas onto previewCanvas scaled down
+            previewCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, previewCanvas.width, previewCanvas.height);
         }
 
         function toggleAdvancedOptions() {
@@ -457,6 +475,45 @@
                 };
                 colorOptionsDiv.appendChild(expandButton);
             }
+        }
+
+        function downloadImage() {
+            const canvas = document.getElementById('actualCanvas');
+            const link = document.createElement('a');
+            link.href = canvas.toDataURL();
+            link.download = 'brandterday-download.png';
+            link.click();
+        }
+        async function copyToClipboard() {
+            try {
+                const canvas = document.getElementById('actualCanvas');
+                const imgBlob = await new Promise(resolve => canvas.toBlob(resolve));
+                
+                const data = [new ClipboardItem({ 'image/png': imgBlob })];
+
+                await navigator.clipboard.write(data);
+                alert('Image copied to clipboard!');
+            } catch (err) {
+                console.error(err);
+                alert('Failed to copy image to clipboard.');
+            }
+        }
+        function openImageBlobInNewTab() {
+            const canvas = document.getElementById('actualCanvas');
+    
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                
+                let link = document.createElement('a');
+                link.href = url;
+                link.target = "_blank";
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Release the reference to the blob
+                URL.revokeObjectURL(url);
+            });
         }
     </script>
     <br />
