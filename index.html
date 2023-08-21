@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watermarking Tool</title>
+    <style>
+        body, html {
+            height: 100%;
+            font-family: Arial, sans-serif;
+            background-color: #2a2a2a;
+            color: #eaeaea;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #333;
+        }
+
+        h1, h2 {
+            text-align: center;
+        }
+
+        button {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            color: white;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #colorOptions {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Watermarking Tool</h1>
+        
+        <div>
+            <label for="mainImage">Main Image:</label>
+            <input type="file" id="mainImage">
+        </div>
+
+        <div>
+            <label for="watermarkImage">Watermark Image:</label>
+            <input type="file" id="watermarkImage">
+        </div>
+
+        <div>
+            <label for="location">Choose Location:</label>
+            <select id="location">
+                <option value="top-left">Top Left</option>
+                <option value="top-center">Top Centered</option>
+                <option value="top-right">Top Right</option>
+                <option value="middle-left">Center Left</option>
+                <option value="middle-right">Center Right</option>
+                <option value="bottom-left">Bottom Left</option>
+                <option value="bottom-center">Bottom Centered</option>
+                <option value="bottom-right">Bottom Right</option>
+            </select>
+        </div>
+
+        <div id="advancedOptions" style="display:none;">
+            <label for="monotone">Monotone:</label>
+            <input type="checkbox" id="monotone">
+            <br />
+
+            <label for="invertColors">Invert Colors:</label>
+            <input type="checkbox" id="invertColors" onchange="updatePreview()">
+            <br />
+
+            <label for="opacity">Opacity (0-100):</label>
+            <input type="range" id="opacity" value="65" min="0" max="100"> 
+            <input type="number" id="opacityValue" value="65" min="0" max="100">
+            <br />
+
+            <label for="brightness">Brightness:</label>
+            <input type="range" id="brightness" value="100" min="0" max="200" step="1" onchange="updatePreview()">
+            <input type="number" id="brightnessValue" value="100" min="0" max="200" step="1" onchange="updatePreview()">%
+            <br />
+
+            <label for="contrast">Contrast:</label>
+            <input type="range" id="contrast" value="100" min="0" max="200" step="1" onchange="updatePreview()">
+            <input type="number" id="contrastValue" value="100" min="0" max="200" step="1" onchange="updatePreview()">%
+            <br />
+
+            <label for="scale">Scale (% of main image's height):</label>
+            <input type="range" id="scale" value="8" min="1" max="100"> 
+            <input type="number" id="scaleValue" value="8" min="1" max="100">
+            <br />
+
+            <label for="xMargin">X Margin (%):</label>
+            <input type="range" id="xMargin" value="2.5" min="0" max="100" step="0.5">
+            <input type="number" id="xMarginValue" value="2.5" min="0" max="100" step="0.5">%
+            <br />
+            
+            <label for="yMargin">Y Margin (%):</label>
+            <input type="range" id="yMargin" value="2.5" min="0" max="100" step="0.5">
+            <input type="number" id="yMarginValue" value="2.5" min="0" max="100" step="0.5">%
+            <br />
+            
+            <div id="colorOptions"></div>
+        </div>
+
+        <button onclick="toggleAdvancedOptions()">Show Advanced Options</button>
+        
+        <h2>Preview:</h2>
+        <canvas id="previewCanvas"></canvas>
+    </div>
+
+    <script>
+        // configuration
+        let mainImage = null;
+        let watermarkImage = null;
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+
+        //// add event listeners to handle image changes
+        //
+        document.getElementById('location').addEventListener('change', updatePreview);
+        document.getElementById('monotone').addEventListener('change', updatePreview);
+        //
+        ['opacity', 'scale', 'xMargin', 'yMargin', 'brightness', 'contrast'].forEach(id => {
+            document.getElementById(id).addEventListener('input', function() {
+                const relatedValueInput = document.getElementById(id + 'Value');
+                relatedValueInput.value = this.value;
+                updatePreview();
+            });
+            document.getElementById(id + 'Value').addEventListener('input', function() {
+                const relatedSliderInput = document.getElementById(id);
+                relatedSliderInput.value = this.value;
+                updatePreview();
+            });
+        });
+        //
+        document.getElementById('mainImage').addEventListener('change', function(e) {
+            let file = e.target.files[0];
+            createImageBitmap(file).then(img => {
+                mainImage = img;
+                updatePreview();
+            });
+        });
+        //
+        document.getElementById('watermarkImage').addEventListener('change', function(e) {
+            let file = e.target.files[0];
+            createImageBitmap(file).then(img => {
+                watermarkImage = img;
+                analyzeColors(img);
+                updatePreview();
+            });
+        });
+        //
+        ////
+
+        function updatePreview() {
+            if (!mainImage || !watermarkImage) return;  // Ensure both images are loaded
+
+            const selectedColors = document.querySelectorAll('#colorOptions input:checked');
+            const transparentColors = [...selectedColors].map(input => {
+                const mode = document.getElementById('color-mode-' + input.value).value;
+                const nearness = mode === 'near' ? parseInt(document.getElementById('color-nearness-' + input.value).value) : 0;
+                return { value: input.value, mode, nearness };
+            });
+
+            // Clear the canvas and set its size to the main image's size
+            canvas.width = mainImage.width;
+            canvas.height = mainImage.height;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw the main image
+            ctx.drawImage(mainImage, 0, 0);
+
+            // Set watermark opacity
+            ctx.globalAlpha = parseFloat(document.getElementById('opacity').value) / 100;
+
+            // Scale the watermark
+            const scale = parseFloat(document.getElementById('scale').value) / 100;
+            const watermarkWidth = watermarkImage.width * (mainImage.height * scale / watermarkImage.height);
+            const watermarkHeight = mainImage.height * scale;
+
+            let x, y;  // Coordinates for watermark
+
+            // Calculate margin
+            const marginPercentX = parseFloat(document.getElementById('xMargin').value) / 100;
+            const marginPercentY = parseFloat(document.getElementById('yMargin').value) / 100;
+            const xMargin = mainImage.width * marginPercentX;
+            const yMargin = mainImage.height * marginPercentY;
+
+            // Determine position based on chosen location
+            const location = document.getElementById('location').value;
+            switch (location) {
+                case "top-left":
+                    x = xMargin;
+                    y = yMargin;
+                    break;
+                case "top-center":
+                    x = (mainImage.width - watermarkWidth) / 2;
+                    y = yMargin;
+                    break;
+                case "top-right":
+                    x = (mainImage.width - watermarkWidth) - xMargin;
+                    y = yMargin;
+                    break;
+                case "middle-left":
+                    x = xMargin;
+                    y = (mainImage.height - watermarkHeight) / 2;
+                    break;
+                case "middle-right":
+                    x = (mainImage.width - watermarkWidth) - xMargin;
+                    y = (mainImage.height - watermarkHeight) / 2;
+                    break;
+                case "bottom-left":
+                    x = xMargin;
+                    y = (mainImage.height - watermarkHeight) - yMargin;
+                    break;
+                case "bottom-center":
+                    x = (mainImage.width - watermarkWidth) / 2;
+                    y = (mainImage.height - watermarkHeight) - yMargin;
+                    break;
+                case "bottom-right":
+                    x = (mainImage.width - watermarkWidth) - xMargin;
+                    y = (mainImage.height - watermarkHeight) - yMargin;
+                    break;
+                default:
+                    x = 0;
+                    y = 0;
+            }
+
+            // collect brightness and contrast
+            const brightness = parseFloat(document.getElementById('brightness').value) / 100;
+            const contrast = (parseFloat(document.getElementById('contrast').value) - 100) * 2.55;
+            const contrastFactor = (255 + contrast) / (255.00001 - contrast);  // The small addition prevents division by zero
+
+            // Check for monotone checkbox and apply if true
+            if (document.getElementById('monotone').checked) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = watermarkWidth;
+                tempCanvas.height = watermarkHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(watermarkImage, 0, 0, watermarkWidth, watermarkHeight);
+
+                const imageData = tempCtx.getImageData(0, 0, watermarkWidth, watermarkHeight);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+
+                    // check original colors if they should be transparent
+                    transparentColors.forEach(colorObj => {
+                        if (colorObj.mode === 'exact' && `${data[i]},${data[i+1]},${data[i+2]}` === colorObj.value) {
+                            data[i + 3] = 0;
+                        } else if (colorObj.mode === 'near') {
+                            const [r, g, b] = colorObj.value.split(',').map(v => parseInt(v));
+                            if (Math.abs(data[i] - r) <= colorObj.nearness &&
+                                Math.abs(data[i + 1] - g) <= colorObj.nearness &&
+                                Math.abs(data[i + 2] - b) <= colorObj.nearness) {
+                                data[i + 3] = 0;
+                            }
+                        }
+                    });
+
+                    var colorR = contrastFactor * ((data[i] * brightness) - 128) + 128;       // red;
+                    var colorG = contrastFactor * ((data[i + 1] * brightness) - 128) + 128;   // green;
+                    var colorB = contrastFactor * ((data[i + 2] * brightness) - 128) + 128;   // blue;
+                    if (document.getElementById('invertColors').checked) {
+                        colorR = 255 - colorR;   // Invert red
+                        colorG = 255 - colorG;   // Invert green
+                        colorB = 255 - colorB;   // Invert blue
+                    }
+                    const avg = (colorR + colorG + colorB) / 3;
+                    data[i] = avg;     // red
+                    data[i + 1] = avg; // green
+                    data[i + 2] = avg; // blue
+                }
+                tempCtx.putImageData(imageData, 0, 0);
+                ctx.drawImage(tempCanvas, x, y, watermarkWidth, watermarkHeight);
+            } else {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = watermarkWidth;
+                tempCanvas.height = watermarkHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(watermarkImage, 0, 0, watermarkWidth, watermarkHeight);
+
+                const imageData = tempCtx.getImageData(0, 0, watermarkWidth, watermarkHeight);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                    transparentColors.forEach(colorObj => {
+                        if (colorObj.mode === 'exact' && `${data[i]},${data[i+1]},${data[i+2]}` === colorObj.value) {
+                            data[i + 3] = 0;
+                        } else if (colorObj.mode === 'near') {
+                            const [r, g, b] = colorObj.value.split(',').map(v => parseInt(v));
+                            if (Math.abs(data[i] - r) <= colorObj.nearness &&
+                                Math.abs(data[i + 1] - g) <= colorObj.nearness &&
+                                Math.abs(data[i + 2] - b) <= colorObj.nearness) {
+                                data[i + 3] = 0;
+                            }
+                        }
+                    });
+
+                    var colorR = contrastFactor * ((data[i] * brightness) - 128) + 128;       // red;
+                    var colorG = contrastFactor * ((data[i + 1] * brightness) - 128) + 128;   // green;
+                    var colorB = contrastFactor * ((data[i + 2] * brightness) - 128) + 128;   // blue;
+                    if (document.getElementById('invertColors').checked) {
+                        data[i] = 255 - colorR;       // Invert red
+                        data[i + 1] = 255 - colorG;   // Invert green
+                        data[i + 2] = 255 - colorB;   // Invert blue
+                    }
+                    else
+                    {
+                        data[i] = colorR;       // red
+                        data[i + 1] = colorG;   // green
+                        data[i + 2] = colorB;   // blue
+                    }
+                }
+                tempCtx.putImageData(imageData, 0, 0);
+                ctx.drawImage(tempCanvas, x, y, watermarkWidth, watermarkHeight);
+            }
+
+            ctx.globalAlpha = 1;  // Reset canvas opacity
+        }
+
+        function toggleAdvancedOptions() {
+            const advOpts = document.getElementById('advancedOptions');
+            const toggleButton = document.querySelector('button[onclick="toggleAdvancedOptions()"]');
+
+            if (advOpts.style.display === 'none') {
+                advOpts.style.display = 'block';
+                toggleButton.innerText = "Hide Advanced Options";
+            } else {
+                advOpts.style.display = 'none';
+                toggleButton.innerText = "Show Advanced Options";
+            }
+        }
+
+        function analyzeColors(img) {
+            // Drawing image on a temporary canvas to get image data
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(img, 0, 0);
+            const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
+            const data = imageData.data;
+
+            let uniqueColors = {};
+
+            for (let i = 0; i < data.length; i += 4) {
+                const color = `${data[i]},${data[i+1]},${data[i+2]}`;
+                uniqueColors[color] = (uniqueColors[color] || 0) + 1;
+            }
+
+            const sortedUniqueColors = Object.entries(uniqueColors).sort((a, b) => b[1] - a[1]);
+
+            const colorOptionsDiv = document.getElementById('colorOptions');
+            colorOptionsDiv.innerHTML = '';
+            
+            const header = document.createElement('h3');
+            header.textContent = "Color Eraser";
+            colorOptionsDiv.appendChild(header);
+            sortedUniqueColors.slice(0, 256).forEach((color, index) => {
+                if(index < 10 || colorOptionsDiv.classList.contains('expanded')) {
+                    const colorContainer = document.createElement('div');
+                    colorContainer.style.display = 'flex';
+                    colorContainer.style.alignItems = 'center';
+                    colorContainer.style.gap = '5px';
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.value = color[0];
+                    checkbox.id = 'color-' + color[0];
+                    checkbox.addEventListener('change', updatePreview);
+                    const label = document.createElement('label');
+                    label.htmlFor = checkbox.id;
+                    label.style.background = `rgb(${color[0]})`;
+                    label.style.display = 'inline-block';
+                    label.style.width = '20px';
+                    label.style.height = '20px';
+                    label.style.marginRight = '5px';
+                    colorContainer.appendChild(checkbox);
+                    colorContainer.appendChild(label);
+
+                    const exactnessSelector = document.createElement('select');
+                    exactnessSelector.options.add(new Option('Exact', 'exact'));
+                    exactnessSelector.options.add(new Option('Near', 'near'));
+                    exactnessSelector.id = 'color-mode-' + color[0];
+                    colorContainer.appendChild(exactnessSelector);
+
+                    const nearnessSlider = document.createElement('input');
+                    nearnessSlider.type = 'range';
+                    nearnessSlider.min = '0';
+                    nearnessSlider.max = '255';
+                    nearnessSlider.value = '15'; // A default threshold for color "nearness"
+                    nearnessSlider.id = 'color-nearness-' + color[0];
+                    nearnessSlider.style.display = exactnessSelector.value === 'near' ? 'inline-block' : 'none';
+                    colorContainer.appendChild(nearnessSlider);
+
+                    exactnessSelector.addEventListener('change', function() {
+                        nearnessSlider.style.display = this.value === 'near' ? 'inline-block' : 'none';
+                        updatePreview();
+                    });
+
+                    nearnessSlider.addEventListener('input', updatePreview);
+
+                    colorOptionsDiv.appendChild(colorContainer);
+                }
+            });
+
+            if (sortedUniqueColors.length > 10) {
+                const expandButton = document.createElement('button');
+                expandButton.textContent = colorOptionsDiv.classList.contains('expanded') ? 'Hide More Colors' : 'Show More Colors';
+                expandButton.onclick = () => {
+                    colorOptionsDiv.classList.toggle('expanded');
+                    analyzeColors(img);  // Re-run the function to adjust visible colors
+                };
+                colorOptionsDiv.appendChild(expandButton);
+            }
+        }
+    </script>
+</body>
+</html>
